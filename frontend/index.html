@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doc Chatbot</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f3f1ea;
+    --panel: rgba(255, 255, 255, 0.88);
+    --panel-strong: #ffffff;
+    --text: #1f1d1a;
+    --muted: #6e6960;
+    --border: rgba(67, 54, 38, 0.14);
+    --accent: #0f766e;
+    --accent-strong: #0b5f58;
+    --shadow: 0 20px 60px rgba(41, 31, 20, 0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  body {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--text);
+    overflow: hidden;
+    background:
+      radial-gradient(circle at top left, rgba(15, 118, 110, 0.16), transparent 36%),
+      radial-gradient(circle at top right, rgba(196, 132, 76, 0.18), transparent 34%),
+      linear-gradient(135deg, #f7f4ed 0%, #efe9dd 100%);
+    min-height: 100vh;
+  }
+  .app {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 20px;
+    padding: 20px;
+  }
+  .sidebar, .chat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+  }
+  .sidebar {
+    border-radius: 24px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: sticky;
+    top: 20px;
+    height: calc(100vh - 40px);
+    overflow-y: auto;
+  }
+  .brand { display: flex; flex-direction: column; gap: 6px; }
+  .brand h1 { font-size: 22px; line-height: 1.1; }
+  .brand p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.64);
+    border: 1px solid rgba(67, 54, 38, 0.09);
+  }
+  .section label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .field-group.hidden {
+    display: none;
+  }
+  .split-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  input[type="text"], input[type="password"], select {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid rgba(67, 54, 38, 0.16);
+    border-radius: 12px;
+    background: var(--panel-strong);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus, select:focus {
+    border-color: rgba(15, 118, 110, 0.55);
+    box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+  }
+  .upload-area {
+    border: 1.5px dashed rgba(15, 118, 110, 0.35);
+    border-radius: 16px;
+    padding: 18px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.5);
+    transition: transform .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .upload-area:hover {
+    transform: translateY(-1px);
+    border-color: rgba(15, 118, 110, 0.7);
+    background: rgba(255, 255, 255, 0.72);
+  }
+  .button-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  button {
+    padding: 11px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(67, 54, 38, 0.16);
+    background: rgba(255, 255, 255, 0.86);
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform .15s ease, background .15s ease, border-color .15s ease, opacity .15s ease;
+  }
+  button:hover { transform: translateY(-1px); }
+  button.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+    color: #fff;
+    border-color: transparent;
+  }
+  button.secondary { background: rgba(255, 255, 255, 0.7); }
+  button.danger {
+    background: rgba(143, 37, 37, 0.08);
+    color: #8f2525;
+    border-color: rgba(143, 37, 37, 0.2);
+  }
+  button:disabled { cursor: not-allowed; opacity: 0.55; transform: none; }
+  .status {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+    min-height: 1.5em;
+  }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .chat {
+    border-radius: 28px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .chat-header {
+    padding: 20px 24px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid rgba(67, 54, 38, 0.09);
+    background: rgba(255, 255, 255, 0.55);
+  }
+  .chat-header h2 { font-size: 20px; }
+  .chat-header p { margin-top: 4px; color: var(--muted); font-size: 13px; }
+  .chat-meta {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: right;
+    line-height: 1.45;
+  }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overscroll-behavior: contain;
+  }
+  .msg {
+    max-width: min(760px, 80%);
+    padding: 14px 16px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.65;
+    border: 1px solid transparent;
+    animation: rise .2s ease-out;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, #163b34, #0f766e);
+    color: #fff;
+    box-shadow: 0 12px 30px rgba(15, 118, 110, 0.22);
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(67, 54, 38, 0.1);
+    box-shadow: 0 10px 26px rgba(43, 31, 17, 0.08);
+  }
+  .msg .sources {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(67, 54, 38, 0.08);
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(15, 118, 110, 0.08);
+    color: var(--accent-strong);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .msg.bot h1, .msg.bot h2, .msg.bot h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 14px 0 6px;
+  }
+  .msg.bot p { margin: 8px 0; }
+  .msg.bot ul, .msg.bot ol { padding-left: 20px; margin: 8px 0; }
+  .msg.bot li { margin: 4px 0; }
+  .msg.bot code {
+    background: rgba(15, 118, 110, 0.08);
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 12px;
+  }
+  .msg.bot pre {
+    background: #171717;
+    color: #f4f4f5;
+    padding: 14px;
+    border-radius: 14px;
+    overflow-x: auto;
+    margin: 10px 0;
+  }
+  .msg.bot pre code { background: none; color: inherit; padding: 0; }
+  .msg.bot a { color: var(--accent-strong); }
+  .composer {
+    padding: 18px 24px 24px;
+    background: rgba(255, 255, 255, 0.62);
+    border-top: 1px solid rgba(67, 54, 38, 0.09);
+  }
+  .composer-row { display: flex; gap: 10px; }
+  .composer-row input {
+    flex: 1;
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-size: 15px;
+  }
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(15, 118, 110, 0.22);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (max-width: 980px) {
+    body { overflow: auto; }
+    .app {
+      height: auto;
+      min-height: 100vh;
+      grid-template-columns: 1fr;
+    }
+    .sidebar {
+      position: static;
+      height: auto;
+      overflow-y: visible;
+    }
+    .msg { max-width: 100%; }
+  }
+  @media (max-width: 640px) {
+    .app { padding: 12px; gap: 12px; }
+    .sidebar, .chat { border-radius: 20px; }
+    .chat-header, .messages, .composer { padding-left: 16px; padding-right: 16px; }
+    .composer-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <h1>Doc Chatbot</h1>
+      <p>Upload documents, query them with RAG, and switch between Ollama, Groq, or Gemini.</p>
+    </div>
+
+    <div class="section">
+      <label>Model settings</label>
+      <div class="split-row">
+        <select id="model-provider">
+          <option value="ollama">Self-hosted / Ollama</option>
+          <option value="groq">Groq</option>
+          <option value="gemini">Gemini</option>
+        </select>
+        <input type="text" id="model-name" placeholder="Model name">
+      </div>
+
+      <label for="embed-model">Embedding model</label>
+      <input type="text" id="embed-model" placeholder="Embedding model">
+
+      <div class="field-group" id="ollama-fields">
+        <label for="ollama-base-url">Ollama base URL</label>
+        <input type="text" id="ollama-base-url" placeholder="http://localhost:11434">
+      </div>
+
+      <div class="field-group hidden" id="api-fields">
+        <label for="llm-api-key">API key</label>
+        <input type="password" id="llm-api-key" placeholder="Paste API key">
+
+        <label for="api-base-url">API base URL</label>
+        <input type="text" id="api-base-url" placeholder="https://api.x.ai/v1">
+      </div>
+
+      <div class="button-row">
+        <button class="primary" id="save-llm-btn">Save model settings</button>
+      </div>
+      <div class="hint">Saving writes the selected provider, model, and API key into the server .env file.</div>
+    </div>
+
+    <div class="section">
+      <label for="collection">Collection / namespace</label>
+      <input type="text" id="collection" value="default" placeholder="e.g. product-handbook">
+    </div>
+
+    <div class="section">
+      <label for="api-key">Admin API key</label>
+      <input type="password" id="api-key" placeholder="Required for ingest/delete">
+      <div class="hint">Stored locally in this browser session only.</div>
+    </div>
+
+    <div class="section">
+      <label>Upload documents</label>
+      <div class="upload-area" id="upload-zone">
+        Drop a PDF or TXT here, or click to browse
+      </div>
+      <input type="file" id="file-input" accept=".pdf,.txt" style="display:none">
+      <div class="button-row">
+        <button class="primary" id="upload-btn">Upload &amp; ingest</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <label>Collections</label>
+      <select id="col-list" size="6"></select>
+      <div class="button-row">
+        <button class="secondary" id="refresh-btn">Refresh</button>
+        <button class="danger" id="delete-btn">Delete</button>
+      </div>
+      <div class="hint">Delete requires the API key and removes the selected collection permanently.</div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </aside>
+
+  <main class="chat">
+    <header class="chat-header">
+      <div>
+        <h2>Ask your documents</h2>
+        <p>Answers are rendered safely and API calls are routed through the backend.</p>
+      </div>
+      <div class="chat-meta" id="chat-meta">Ready</div>
+    </header>
+
+    <div class="messages" id="messages">
+      <div class="msg bot">Upload a document, then ask a question about it.</div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-row">
+        <input type="text" id="question" placeholder="Ask a question..." autocomplete="off">
+        <button class="primary" id="send-btn">Send</button>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+const API = window.location.origin;
+const STORAGE_KEY = "doc-chatbot-admin-key";
+const CHAT_STORAGE_KEY = "doc-chatbot-chat-history";
+
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
+
+const elements = {
+  apiKey: document.getElementById("api-key"),
+  apiSaveBtn: document.getElementById("save-llm-btn"),
+  chatMeta: document.getElementById("chat-meta"),
+  collection: document.getElementById("collection"),
+  collections: document.getElementById("col-list"),
+  modelProvider: document.getElementById("model-provider"),
+  modelName: document.getElementById("model-name"),
+  embedModel: document.getElementById("embed-model"),
+  ollamaBaseUrl: document.getElementById("ollama-base-url"),
+  apiKeyInput: document.getElementById("llm-api-key"),
+  apiBaseUrl: document.getElementById("api-base-url"),
+  ollamaFields: document.getElementById("ollama-fields"),
+  apiFields: document.getElementById("api-fields"),
+  fileInput: document.getElementById("file-input"),
+  messages: document.getElementById("messages"),
+  question: document.getElementById("question"),
+  status: document.getElementById("status"),
+  sendBtn: document.getElementById("send-btn"),
+  uploadBtn: document.getElementById("upload-btn"),
+  refreshBtn: document.getElementById("refresh-btn"),
+  deleteBtn: document.getElementById("delete-btn"),
+  uploadZone: document.getElementById("upload-zone"),
+};
+
+let chatHistory = loadChatHistory();
+
+function setStatus(message) {
+  elements.status.textContent = message;
+}
+
+function setChatMeta(message) {
+  elements.chatMeta.textContent = message;
+}
+
+function getApiKey() {
+  return elements.apiKey.value.trim();
+}
+
+function syncApiKeyToStorage() {
+  sessionStorage.setItem(STORAGE_KEY, getApiKey());
+}
+
+function restoreApiKey() {
+  const stored = sessionStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    elements.apiKey.value = stored;
+  }
+}
+
+function setProviderVisibility() {
+  const isApi = elements.modelProvider.value !== "ollama";
+  elements.apiFields.classList.toggle("hidden", !isApi);
+  elements.ollamaFields.classList.toggle("hidden", isApi);
+}
+
+function fillModelSettings(data) {
+  elements.modelProvider.value = data.provider || "ollama";
+  elements.modelName.value = data.model || "";
+  elements.embedModel.value = data.embed_model || "";
+  elements.ollamaBaseUrl.value = data.ollama_base_url || "";
+  elements.apiBaseUrl.value = data.api_base_url || "";
+  elements.apiKeyInput.value = "";
+  setProviderVisibility();
+}
+
+async function loadModelSettings() {
+  try {
+    const data = await apiFetch("/settings/llm");
+    fillModelSettings(data);
+    setStatus(data.api_key_saved ? "Loaded model settings from .env." : "Loaded model settings. No API key saved yet.");
+  } catch (error) {
+    setStatus(`Model settings not loaded: ${error.message}`);
+  }
+}
+
+async function saveModelSettings() {
+  const payload = {
+  provider: elements.modelProvider.value,
+  model: elements.modelName.value.trim() || (elements.modelProvider.value === "gemini" ? "gemini-2.0-flash" : elements.modelProvider.value === "groq" ? "groq-2-latest" : "qwen2.5:7b"),
+  embed_model: elements.embedModel.value.trim() || (elements.modelProvider.value === "gemini" ? "text-embedding-004" : "nomic-embed-text"),
+    api_key: elements.apiKeyInput.value.trim(),
+    ollama_base_url: elements.ollamaBaseUrl.value.trim() || "http://localhost:11434",
+    api_base_url: elements.apiBaseUrl.value.trim() || (elements.modelProvider.value === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.x.ai/v1"),
+    gemini_base_url: "https://generativelanguage.googleapis.com/v1beta",
+  };
+
+  elements.apiSaveBtn.disabled = true;
+  setStatus("Saving model settings to .env...");
+
+  try {
+    const response = await fetch(`${API}/settings/llm`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Could not save model settings");
+    }
+
+    fillModelSettings(data);
+    setStatus(`Saved ${data.provider} settings to .env.`);
+    setChatMeta(`${data.provider === "ollama" ? "Ollama" : data.provider === "groq" ? "Groq" : "Gemini"} provider active`);
+  } catch (error) {
+    setStatus(`Could not save model settings: ${error.message}`);
+  } finally {
+    elements.apiSaveBtn.disabled = false;
+  }
+}
+
+function loadChatHistory() {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveChatHistory() {
+  localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatHistory));
+}
+
+function addToHistory(role, content) {
+  chatHistory.push({ role, content });
+  chatHistory = chatHistory.slice(-20);
+  saveChatHistory();
+}
+
+function clearChatHistory() {
+  chatHistory = [];
+  saveChatHistory();
+}
+
+function authHeaders() {
+  const headers = {};
+  const apiKey = getApiKey();
+  if (apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+  return headers;
+}
+
+async function apiFetch(path, options = {}) {
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...authHeaders(),
+    },
+  });
+
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+
+  if (!response.ok) {
+    throw new Error(data.detail || data.message || `Request failed with ${response.status}`);
+  }
+
+  return data;
+}
+
+function renderMarkdown(markdown) {
+  const rendered = marked.parse(markdown || "");
+  return DOMPurify.sanitize(rendered, { USE_PROFILES: { html: true } });
+}
+
+async function uploadFile() {
+  const file = elements.fileInput.files[0];
+  if (!file) return setStatus("No file selected.");
+  const col = elements.collection.value.trim() || "default";
+  setStatus(`Ingesting ${file.name} into ${col}...`);
+  elements.uploadBtn.disabled = true;
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("collection", col);
+  try {
+    const response = await fetch(`${API}/ingest`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders(),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Upload failed");
+    }
+    setStatus(`Uploaded ${data.filename} and added ${data.chunks_added} chunks to ${data.collection}.`);
+    loadCollections();
+    elements.fileInput.value = "";
+  } catch (error) {
+    setStatus(`Error: ${error.message}`);
+  } finally {
+    elements.uploadBtn.disabled = false;
+  }
+}
+
+async function send() {
+  const q = elements.question.value.trim();
+  if (!q) return;
+  const col = elements.collection.value.trim() || "default";
+  addMsg(q, "user", false);
+  addToHistory("user", q);
+  elements.question.value = "";
+  const thinking = addMsg('<span class="spinner"></span>', "bot", true);
+  elements.sendBtn.disabled = true;
+  setChatMeta("Thinking...");
+  try {
+    const response = await fetch(`${API}/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+      },
+      body: JSON.stringify({
+        question: q,
+        collection: col,
+        history: chatHistory,
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Chat request failed");
+    }
+    thinking.innerHTML = renderMarkdown(data.answer);
+    appendSources(thinking, data.sources || [], data.web_sources || []);
+    addToHistory("assistant", data.answer || "");
+    setChatMeta(`Answered from ${col}`);
+  } catch (error) {
+    thinking.textContent = "";
+    const strong = document.createElement("strong");
+    strong.textContent = "Error: ";
+    thinking.appendChild(strong);
+    thinking.appendChild(document.createTextNode(error.message));
+    setChatMeta("Request failed");
+  } finally {
+    elements.sendBtn.disabled = false;
+  }
+}
+
+function addMsg(content, role, trusted = false) {
+  const el = document.createElement("div");
+  el.className = `msg ${role}`;
+  if (trusted) {
+    el.innerHTML = DOMPurify.sanitize(content, { USE_PROFILES: { html: true } });
+  } else {
+    el.textContent = content;
+  }
+  elements.messages.appendChild(el);
+  el.scrollIntoView({ behavior: "smooth" });
+  return el;
+}
+
+function appendSources(messageEl, sources, webSources) {
+  if (!sources.length && !webSources.length) {
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "sources";
+
+  if (sources.length) {
+    const label = document.createElement("span");
+    label.textContent = "Sources:";
+    wrapper.appendChild(label);
+
+    sources.forEach((source) => {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = source;
+      wrapper.appendChild(chip);
+    });
+  }
+
+  if (webSources.length) {
+    const label = document.createElement("span");
+    label.textContent = sources.length ? "Web:" : "Web sources:";
+    wrapper.appendChild(label);
+
+    webSources.forEach((url) => {
+      const link = document.createElement("a");
+      link.className = "chip";
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      link.textContent = url;
+      wrapper.appendChild(link);
+    });
+  }
+
+  messageEl.appendChild(wrapper);
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+async function loadCollections() {
+  try {
+    const data = await apiFetch("/collections");
+    const previous = elements.collections.value || elements.collection.value || "default";
+    const collections = data.collections || [];
+    elements.collections.innerHTML = collections.length
+      ? collections.map((collection) => `<option value="${escapeHtml(collection)}">${escapeHtml(collection)}</option>`).join("")
+      : `<option value="">No collections yet</option>`;
+
+    if (collections.includes(previous)) {
+      elements.collections.value = previous;
+    } else if (collections.length) {
+      elements.collections.value = collections[0];
+    }
+
+    const activeCollection = elements.collections.value || "default";
+    elements.collection.value = activeCollection;
+    setStatus(`Loaded ${collections.length} collection(s).`);
+  } catch (error) {
+    setStatus(`Could not load collections: ${error.message}`);
+  }
+}
+
+async function deleteCollection() {
+  const name = elements.collections.value || elements.collection.value.trim();
+  if (!name) {
+    return setStatus("Pick a collection first.");
+  }
+
+  if (!confirm(`Delete collection "${name}"? This cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    setStatus(`Deleting ${name}...`);
+    await apiFetch(`/collection/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    setStatus(`Deleted ${name}.`);
+    loadCollections();
+  } catch (error) {
+    setStatus(`Delete failed: ${error.message}`);
+  }
+}
+
+restoreApiKey();
+elements.apiKey.addEventListener("input", syncApiKeyToStorage);
+elements.modelProvider.addEventListener("change", setProviderVisibility);
+elements.apiSaveBtn.addEventListener("click", saveModelSettings);
+elements.fileInput.addEventListener("change", uploadFile);
+elements.uploadZone.addEventListener("click", () => elements.fileInput.click());
+elements.uploadZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  elements.uploadZone.style.borderColor = "rgba(15, 118, 110, 0.8)";
+});
+elements.uploadZone.addEventListener("dragleave", () => {
+  elements.uploadZone.style.borderColor = "rgba(15, 118, 110, 0.35)";
+});
+elements.uploadZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  elements.uploadZone.style.borderColor = "rgba(15, 118, 110, 0.35)";
+  if (event.dataTransfer.files.length > 0) {
+    const transfer = new DataTransfer();
+    for (const file of event.dataTransfer.files) {
+      transfer.items.add(file);
+    }
+    elements.fileInput.files = transfer.files;
+    uploadFile();
+  }
+});
+elements.uploadBtn.addEventListener("click", uploadFile);
+elements.refreshBtn.addEventListener("click", loadCollections);
+elements.deleteBtn.addEventListener("click", deleteCollection);
+elements.sendBtn.addEventListener("click", send);
+elements.question.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    send();
+  }
+});
+elements.collections.addEventListener("change", () => {
+  elements.collection.value = elements.collections.value;
+});
+
+window.addEventListener("storage", (event) => {
+  if (event.key === CHAT_STORAGE_KEY) {
+    chatHistory = loadChatHistory();
+  }
+});
+
+setProviderVisibility();
+loadModelSettings();
+loadCollections();
+</script>
+</body>
+</html>
